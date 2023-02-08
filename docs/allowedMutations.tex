@@ -1,0 +1,221 @@
+\documentclass[a4paper]{article}
+
+
+\title{Conservation and allowed residues}
+\author{Andrew C.R.\ Martin}
+\date{21st December 2022}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+We have previously looked at the problem of conservation in columns in
+a multiple sequence alignment (MSA), and generally have ways of
+scoring conservation including our version of `scorecons'. We have
+also looked at weighting the conservation by species-level sequence
+conservation and have implemented a statistical cutoff for significant
+conservation in an alignment-dependent manner (ImPACT).
+
+However, this does not address the problem of whether a
+\emph{specific} mutation is allowed. Suppose we have 100 sequences
+where 90 of them have a serine at a given position and the remaining
+10 have a threonine. Since serine and threonine are very similar amino
+acids and score highly in things like BLOSUM or PAM scoring matrices,
+this will be indicated as a very conserved position. Using our
+`scorecons' and the default pet91 matrix, this would obtain a
+conservation score of 0.891. Using the grouped entropy scoring, it
+obtains a score of 1.0.
+
+Now suppose we have a native sequence having a serine at this position,
+if a mutation is made to a very different amino acid then this is very
+likely to be problematic. However, if the mutation is to a serine, on
+the basis of conservation, this will still be scored as problematic
+although we know that this is a very similar amino acid and is allowed
+in other sequences.
+
+A further problem is the concept of `compensated pathogenic mutations'
+(CPDs). Here a mutation known to be pathogenic in (say) humans results
+in the native residue found in another species (say mice). Clearly
+there are other accompanying mutations that compensate for this
+change. Thus the mutation in our species of interest is damaging, yet
+the resulting mutant residue is seen in an MSA at this position.
+
+\section{Pre-requisites}
+The following pre-requisites and assumptions are made below:
+
+\begin{enumerate}
+  \item Any scoring matrix may be used, but it must be normalized such
+    that a)~all values are positive, b)~the values on the diagonal are
+    equal and maximal, c)~the values on the diagonal are equal to
+    1. The Valdar scorecons paper explains how to do this.
+  \item An MSA is available for Proposals~4 and~5.
+  \item A method is available for scoring sequence identity or
+    sequence similarity (between two pre-aligned sequences) for
+    Proposals~4 and~5. In both cases, the value should be expressed as
+    a number between 0 and~1.
+\end{enumerate}
+
+\section{Proposal~1 --- Conservation with respect to a reference
+  sequence} 
+The first proposal is that, instead of calculating an overall
+conservation score for a position in an alignment, we should only
+look at conservation in a pairwise manner from a reference sequence of
+interest. In `scorecons' we calculate a score for a particular column as:
+\begin{equation}
+  S_c = \sum_{i, j>i}^Ns_{i, j} / N_c
+\end{equation}
+where $S_c$ is the score for this column, $s_{i,j}$ is a score for
+residues at positions $i$ and $j$ in the column, maximal and
+equal to $1$), $N$ is the number of sequences in the alignment and
+$N_c$ is the number of comparisons made ($N_c = N(N-1)/2$).
+
+Instead, we would calculate:
+\begin{equation}\label{eqn:sr}
+  S_{r} = \sum_{j>1}^Ns_{1, j} / (N-1)
+\end{equation}
+i.e.\ $S_r$ is simply the conservation score \emph{with respect to
+  the reference sequence}.
+
+\section{Proposal~2 --- minimum conservation}
+The second proposal is that, instead of calculating the mean
+conservation, we should calculate the minimum score for a substituted
+residue. In other words what is the minimum conservation (i.e.\
+maximum diversity) allowed at this position?
+
+\begin{equation} \label{eqn:sm}
+  S_{m} = \min_{j>1}^Ns_{1, j}
+\end{equation}
+This could then be used as a threshold for suggesting whether a
+particular mutation is likely to be damaging. i.e.\ we would calculate
+the difference between a score for a given mutation from the native
+sequence and $S_m$:
+
+\begin{equation}
+  \Delta_m = s_{1, m} - S_m
+\end{equation}
+where $s_{1,m}$ is the score for mutated residue $m$ against the
+reference sequence residue and $S_m$ is the thresold calculated in
+Equation~\ref{eqn:sm}. A negative value would indicate an unfavourable
+mutation. 
+
+\section{Proposal~3 --- minimum conservation by S.D.}
+Proposal~3 refines Proposal~2 by selecting a score that is $d$
+standard deviations lower than the mean rather than simply selecting
+the minimum. This accounts for the distribution of mutated residues
+rather than simply taking the most different. The standard deviation
+is calculated as:
+
+\begin{equation}\label{eqn:sigma}
+  \sigma = \sqrt{\frac{\sum_{j>1}^N(s_{1,j} - S_r)^2}{N-1}}
+\end{equation}
+where $S_r$ is the mean conservation with respect to the reference
+sequence as calculated in Equation~\ref{eqn:sr}. A threshold score would
+then be calculated as:
+\begin{equation}\label{eqn:ssigma}
+  S_\sigma = S_r - d\sigma
+\end{equation}
+where $d$ would have to be determined empirically, but typically could
+be $2.5$ or $3.0$.
+
+As before, we could then calculate the difference between a score for
+a given mutation from the native sequence and $S_\sigma$:
+
+\begin{equation}
+  \Delta_\sigma = s_{1, m} - S_\sigma
+\end{equation}
+where $s_{1,m}$ is the score for mutated residue $m$ against the
+reference sequence residue and $S_\sigma$ is the thresold calculated in
+Equation~\ref{eqn:ssigma}. A negative value would indicate an unfavourable
+mutation. 
+
+
+\section{Proposal~4 --- weighted minimum conservation}
+Proposal~4 attempts to allow for CPDs. CPDs become more common as the
+sequences become more diverse. i.e.\ it is often small cummulative
+effects rather than a single compensatory mutation (see our paper).
+Thus the idea would be to weight allowed diversity higher for
+sequences that are overall very similar and lower for sequences that
+are less similar.
+
+For example, suppose the reference sequence has a serine at a
+particular position and another sequence is identical except for an
+asparagine at that position. Clearly that asparagine is going to be
+allowed as a mutation with no effect on the function of the protein
+(unless the compensatory mutation is in another protein). On the other
+hand, if two sequences are quite diverse, there may be compensatory
+effects going on.
+
+In this case, it is simpler to work in terms of diversity rather than
+conservation of residues. Assuming (as above) that residue similarity
+from a scoring matrix is scored in the range of 0\ldots 1 (where 1
+represents an identical residue), we can simply define the diversity
+($v$) as:
+
+\begin{equation}\label{eqn:v}
+  v_{i,j} = 1 - s_{i,j}
+\end{equation}
+
+We can now revisit Proposal~2, weighting by the sequence identity (or
+similarity --- both expressed as a fractional value, $P$) between the
+two sequences:
+
+\begin{equation} \label{eqn:smw}
+  V_{mw} = \max_{j>1}^N(v_{1, j} \times P_{1,j})
+\end{equation}
+where $v_{1,j}$ is the diversity between the residue in the reference
+sequence residue and in sequence $j$ as defined in
+Equation~\ref{eqn:v} and $P_{1,j}$ is the overall fractional sequence
+identity (or similarity) between sequences the reference sequence and
+sequence $j$.  As before, this could then be used as a threshold for
+suggesting whether a particular mutation is likely to be damaging:
+
+\begin{equation}
+  \Delta_{mw} = V_{mw} - (v_{1, M} \times P_{1, M}) 
+\end{equation}
+where $v_{1,M}$ is the diversity score for mutated residue $M$ against
+the reference sequence residue and $V_{mw}$ is the threshold
+calculated in Equation~\ref{eqn:smw}. $P_{1,M}$ is the sequence
+identity (or similarity) between the reference sequence and the
+mutated sequence (which clearly will be very high, normally only one
+mutation being present). A negative value would indicate an
+unfavourable mutation.
+
+\section{Proposal~5 --- weighted minimum conservation by SD}
+Proposal~5 is simply the ideas of Proposal~4 applied to Proposal~3
+instead of Proposal~2, i.e.\ selecting a diversity score that is $d$ standard
+deviations above the mean rather than simply selecting the
+maximum.
+
+The mean weighted diversity score is calculated with resepct to the
+reference sequence (analagous to Equation~\ref{eqn:sr}):
+
+\begin{equation}\label{eqn:vr}
+  V_{r} = \sum_{j>1}^N(v_{1, j} \times P_{1,j}) / (N-1)
+\end{equation}
+The standard deviation is calculated as (analagous to Equation~\ref{eqn:sigma}):
+
+\begin{equation}
+  \sigma_w = \sqrt{\frac{\sum_{j>1}^N((v_{1,j} \times P_{1,j}) - V_r)^2}{N-1}}
+\end{equation}
+A threshold score would then be calculated as:
+\begin{equation}\label{eqn:ssigmaw}
+  V_{\sigma w} = V_r + d\sigma_w
+\end{equation}
+where $d$ would have to be determined empirically, but typically could
+be $2.5$ or $3.0$.
+
+As before, we could then calculate the difference between a score for
+a given mutation from the native sequence and $S_{\sigma w}$:
+
+\begin{equation}
+  \Delta_{\sigma w} = V_{\sigma w} - (v_{1, M} \times P_{1, M})
+\end{equation}
+where $v_{1,M}$ is the diversity score for mutated residue $M$ against
+the reference sequence residue, $V_{\sigma w}$ is the thresold
+calculated in Equation~\ref{eqn:ssigmaw} and $P_{1,M}$ is the sequence
+identity (or similarity) between the reference sequence and the
+mutated sequence (which clearly will be very high, normally only one
+mutation being present). A negative value would indicate an
+unfavourable mutation.
+
+\end{document}
