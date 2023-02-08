@@ -85,7 +85,6 @@ typedef struct _seqlist
 #   define INLINE static
 #endif
 
-   
 
 /************************************************************************/
 /* Globals
@@ -97,10 +96,14 @@ typedef struct _seqlist
 int  main(int argc, char **argv);
 REAL ScorePairwiseAlignmentIdentity(char *seq1, char *seqJ);
 REAL SDWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position,
-                         REAL meanWeightedDiversity);
-REAL MeanWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position);
-INLINE REAL ScoreDiversity(char *seq1, char *seqJ, int position);
-INLINE REAL ScoreSimilarity(char *seq1, char *seqJ, int position);
+                         REAL meanWeightedDiversity,
+                         REAL maxInMatrix);
+REAL MeanWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position,
+                           REAL maxInMatrix);
+INLINE REAL ScoreDiversity(char *seq1, char *seqJ, int position,
+                           REAL maxInMatrix);
+INLINE REAL ScoreSimilarity(char *seq1, char *seqJ, int position,
+                            REAL maxInMatrix);
 INLINE REAL CalculateThreshold(REAL meanWeightedDiversity,
                         REAL sdWeightedDiversity,
                         REAL numSD);
@@ -110,9 +113,10 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
 void Usage(void);
 SEQLIST *ReadFASTAAlignment(FILE *in, int *nSeqs);
 REAL EvaluateMutation(SEQLIST *seqlist, int NSeqs,
-                      int position, char mutation, REAL numSD);
+                      int position, char mutation,
+                      REAL numSD, REAL maxInMatrix);
 REAL CalculateDelta(SEQLIST *seqlist, int position, char mutant,
-                    REAL threshold);
+                    REAL threshold, REAL maxInMatrix);
 
 
 /************************************************************************/
@@ -139,10 +143,24 @@ int main(int argc, char **argv)
       {
          if(blReadMDM(MDMFile))
          {
+            REAL maxInMatrix = blZeroMDM();
+            
             if((seqlist = ReadFASTAAlignment(in, &nSeqs))!=NULL)
             {
-               REAL score = EvaluateMutation(seqlist, nSeqs,
-                                             position, mutation, numSD);
+               REAL score;
+#ifdef DEBUG
+               SEQLIST *s;
+               printf("\n*** Sequences:\n");
+               for(s=seqlist; s!=NULL; NEXT(s))
+               {
+                  printf("%s\n", s->sequence);
+               }
+               printf("\n");
+#endif
+               
+               score = EvaluateMutation(seqlist, nSeqs,
+                                        position, mutation,
+                                        numSD, maxInMatrix);
                
                fprintf(out, "%.3f\n", score);
             }
@@ -181,21 +199,31 @@ output file\n");
 
 /************************************************************************/
 REAL EvaluateMutation(SEQLIST *seqlist, int nSeqs,
-                      int position, char mutation, REAL numSD)
+                      int position, char mutation,
+                      REAL numSD, REAL maxInMatrix)
 {
    REAL meanWeightedDiversity,
         sd,
         threshold,
         score;
 
-   meanWeightedDiversity = MeanWeightedDiversity(seqlist,nSeqs,position);
-   sd                    = SDWeightedDiversity(seqlist,nSeqs,position,
-                                               meanWeightedDiversity);
+   meanWeightedDiversity = MeanWeightedDiversity(seqlist, nSeqs,
+                                                 position, maxInMatrix);
+   sd                    = SDWeightedDiversity(seqlist, nSeqs, position,
+                                               meanWeightedDiversity,
+                                               maxInMatrix);
    threshold             = CalculateThreshold(meanWeightedDiversity,
                                               sd, numSD);
+#ifdef DEBUG
+   printf("*** Key Values:\n");
+   printf("Number of SDs (NumSD)         : %.3f\n", numSD);
+   printf("Mean Weighted Diversity (MWD) : %.3f\n",
+          meanWeightedDiversity);
+   printf("Standard Deviation (SD)       : %.3f\n", sd);
+   printf("Threshold (MWD+NumSD*SD)      : %.3f\n", threshold);
+#endif
    score                 = CalculateDelta(seqlist, position, mutation,
-                                          threshold);
-
+                                          threshold, maxInMatrix);
    return(score);
 }
 
@@ -308,7 +336,8 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
 
 
 /************************************************************************/
-REAL MeanWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position)
+REAL MeanWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position,
+                           REAL maxInMatrix)
 {
    SEQLIST *s;
    int     j, k;
@@ -331,7 +360,7 @@ REAL MeanWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position)
       seqJ = s->sequence;
       
       P_1j = ScorePairwiseAlignmentIdentity(seq1, seqJ);
-      v_1j = ScoreDiversity(seq1, seqJ, position);
+      v_1j = ScoreDiversity(seq1, seqJ, position, maxInMatrix);
       
       Vr += (v_1j * P_1j);
    }
@@ -353,24 +382,35 @@ INLINE REAL CalculateThreshold(REAL meanWeightedDiversity,
 
 /************************************************************************/
 REAL CalculateDelta(SEQLIST *seqlist, int position, char mutant,
-                    REAL threshold)
+                    REAL threshold, REAL maxInMatrix)
 {
    REAL P_1M,
-        v_1M;
+        v_1M,
+        rawSimilarity;
    char native;
 
-   native = seqlist->sequence[position];
+   native        = seqlist->sequence[position];
+   rawSimilarity = blCalcMDMScoreUC(native, mutant);
+   v_1M          = 1 - (rawSimilarity/maxInMatrix);
+   P_1M          = ScoreSelfIDMutant(seqlist->sequence, 1);
 
-   v_1M = 1 - (blCalcMDMScoreUC(native, mutant)/10.0);
-   P_1M = ScoreSelfIDMutant(seqlist->sequence, 1);
-   
+#ifdef DEBUG
+   printf("Native                        : %c\n",   native);
+   printf("Mutant                        : %c\n",   mutant);
+   printf("Raw Similarity (Native:Mutant): %.3f\n", rawSimilarity);
+   printf("Max in corrected matrix       : %.3f\n", maxInMatrix);
+   printf("Diversity (Native:Mutant)     : %.3f\n", v_1M);
+   printf("Self ID with mutation         : %.3f\n\n", P_1M);
+#endif   
+
    return(threshold - (v_1M * P_1M));
 }
 
 
 /************************************************************************/
 REAL SDWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position,
-                         REAL meanWeightedDiversity)
+                         REAL meanWeightedDiversity,
+                         REAL maxInMatrix)
 {
    char *seq1, *seqJ;
    int  j, k;
@@ -393,7 +433,7 @@ REAL SDWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position,
       seqJ = s->sequence;
       
       P_1j = ScorePairwiseAlignmentIdentity(seq1, seqJ);
-      v_1j = ScoreDiversity(seq1, seqJ, position);
+      v_1j = ScoreDiversity(seq1, seqJ, position, maxInMatrix);
 
       dev = ((v_1j * P_1j) - meanWeightedDiversity);
       sumDevSq += (dev*dev);
@@ -406,19 +446,21 @@ REAL SDWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position,
 
 
 /************************************************************************/
-INLINE REAL ScoreDiversity(char *seq1, char *seqJ, int position)
+INLINE REAL ScoreDiversity(char *seq1, char *seqJ, int position,
+                           REAL maxInMatrix)
 {
    REAL similarity;
    
-   similarity = ScoreSimilarity(seq1, seqJ, position);
+   similarity = ScoreSimilarity(seq1, seqJ, position, maxInMatrix);
    return(1-similarity);
 }
 
 
 /************************************************************************/
-INLINE REAL ScoreSimilarity(char *seq1, char *seqJ, int position)
+INLINE REAL ScoreSimilarity(char *seq1, char *seqJ, int position,
+                            REAL maxInMatrix)
 {
-   return(blCalcMDMScoreUC(seq1[position], seqJ[position])/10.0);
+   return(blCalcMDMScoreUC(seq1[position], seqJ[position])/maxInMatrix);
 }
 
 

@@ -4,8 +4,8 @@ LOPT    = -L$(ACRM)/lib -I$(ACRM)/include
 OFILES  = carcons.o 
 LIBS    = -lbiop -lgen -lm
 EXE     = carcons
-#COPT   = -g -Wall -ansi -pedantic $(LOPT)
-COPT    = -O3 -std=c99 -Wall -ansi -pedantic $(LOPT)
+COPT    = -g -Wall -ansi -pedantic $(LOPT) -DDEBUG
+#COPT    = -O3 -std=c99 -Wall -ansi -pedantic $(LOPT)
 
 $(EXE) : $(OFILES)
 	$(CC) $(COPT) -o $@ $(OFILES) $(LIBS)
