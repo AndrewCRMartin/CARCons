@@ -49,7 +49,7 @@
 
    Revision History:
    =================
-   V0.1    03.02.23  Original  By: ACRM
+   V0.1    08.02.23  Original  By: ACRM
 
 *************************************************************************/
 /* Includes
@@ -62,11 +62,14 @@
 #include "bioplib/macros.h"
 #include "bioplib/general.h"
 #include "bioplib/sequtil.h"
+#include "bioplib/seq.h"
 
 /************************************************************************/
 /* Defines and macros
 */
-#define MAXBUFF 512
+#define MAXBUFF   512
+#define DEF_MDM   "pet91.mat"
+#define DEF_NUMSD 1.0
 
 typedef struct _seqlist
 {
@@ -98,7 +101,6 @@ REAL SDWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position,
 REAL MeanWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position);
 INLINE REAL ScoreDiversity(char *seq1, char *seqJ, int position);
 INLINE REAL ScoreSimilarity(char *seq1, char *seqJ, int position);
-REAL MDMScore(char aa1, char aa2);
 INLINE REAL CalculateThreshold(REAL meanWeightedDiversity,
                         REAL sdWeightedDiversity,
                         REAL numSD);
@@ -113,9 +115,6 @@ REAL CalculateDelta(SEQLIST *seqlist, int position, char mutant,
                     REAL threshold);
 
 
-
-
-
 /************************************************************************/
 int main(int argc, char **argv)
 {
@@ -123,30 +122,44 @@ int main(int argc, char **argv)
            *out = stdout;
    char    inFile[MAXBUFF],
            outFile[MAXBUFF],
+           MDMFile[MAXBUFF],
            mutation;
-   REAL    numSD    = 2.0;
+   REAL    numSD    = DEF_NUMSD;
    int     position = 0,
            nSeqs    = 0;
    SEQLIST *seqlist = NULL;
+
+   /* Default MDM file                                                  */
+   strcpy(MDMFile, DEF_MDM);
    
    if(ParseCmdLine(argc, argv, inFile, outFile, &position, &mutation,
                    &numSD))
    {
       if(blOpenStdFiles(inFile, outFile, &in, &out))
       {
-         if((seqlist = ReadFASTAAlignment(in, &nSeqs))!=NULL)
+         if(blReadMDM(MDMFile))
          {
-            REAL score = EvaluateMutation(seqlist, nSeqs,
-                                          position, mutation, numSD);
-
-            fprintf(out, "%.3f\n", score);
+            if((seqlist = ReadFASTAAlignment(in, &nSeqs))!=NULL)
+            {
+               REAL score = EvaluateMutation(seqlist, nSeqs,
+                                             position, mutation, numSD);
+               
+               fprintf(out, "%.3f\n", score);
+            }
+            else
+            {
+               fprintf(stderr,"carcons: Error - unable to read FASTA \
+alignment file\n");
+               return(1);
+            }
          }
          else
          {
-            fprintf(stderr,"carcons: Error - unable to read FASTA \
-alignment file\n");
+            fprintf(stderr,"carcons: Error - unable to read mutation \
+scoring matrix (%s)\n", MDMFile);
             return(1);
          }
+         
       }
       else
       {
@@ -165,6 +178,8 @@ output file\n");
    
 }
 
+
+/************************************************************************/
 REAL EvaluateMutation(SEQLIST *seqlist, int nSeqs,
                       int position, char mutation, REAL numSD)
 {
@@ -259,6 +274,7 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
          /* Copy the first (required) to position                       */
          if(!sscanf(argv[0], "%d", position))
             return(FALSE);
+         (*position)--;
          argc--;
          argv++;
 
@@ -289,7 +305,6 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
    
    return(TRUE);
 }
-
 
 
 /************************************************************************/
@@ -326,6 +341,7 @@ REAL MeanWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position)
    return(Vr);
 }
 
+
 /************************************************************************/
 INLINE REAL CalculateThreshold(REAL meanWeightedDiversity,
                                REAL sdWeightedDiversity,
@@ -333,7 +349,6 @@ INLINE REAL CalculateThreshold(REAL meanWeightedDiversity,
 {
    return(meanWeightedDiversity + (numSD * sdWeightedDiversity));
 }
-
 
 
 /************************************************************************/
@@ -346,7 +361,7 @@ REAL CalculateDelta(SEQLIST *seqlist, int position, char mutant,
 
    native = seqlist->sequence[position];
 
-   v_1M = 1 - (MDMScore(native, mutant)/10.0);
+   v_1M = 1 - (blCalcMDMScoreUC(native, mutant)/10.0);
    P_1M = ScoreSelfIDMutant(seqlist->sequence, 1);
    
    return(threshold - (v_1M * P_1M));
@@ -390,7 +405,6 @@ REAL SDWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position,
 }
 
 
-
 /************************************************************************/
 INLINE REAL ScoreDiversity(char *seq1, char *seqJ, int position)
 {
@@ -400,11 +414,13 @@ INLINE REAL ScoreDiversity(char *seq1, char *seqJ, int position)
    return(1-similarity);
 }
 
+
 /************************************************************************/
 INLINE REAL ScoreSimilarity(char *seq1, char *seqJ, int position)
 {
-   return(MDMScore(seq1[position], seqJ[position])/10.0);
+   return(blCalcMDMScoreUC(seq1[position], seqJ[position])/10.0);
 }
+
 
 /************************************************************************/
 REAL ScorePairwiseAlignmentIdentity(char *seq1, char *seqJ)
@@ -436,6 +452,8 @@ REAL ScorePairwiseAlignmentIdentity(char *seq1, char *seqJ)
    
    return((REAL)nMatch / (REAL)nPos);
 }
+
+
 /************************************************************************/
 REAL ScoreSelfIDMutant(char *seq, int nMutant)
 {
@@ -458,15 +476,33 @@ REAL ScoreSelfIDMutant(char *seq, int nMutant)
    return((REAL)(nMatch-nMutant) / (REAL)nPos);
 }
 
+
+/************************************************************************/
 void Usage(void)
 {
-   printf("Usage\n");
+   printf("\ncarcons V1.0 (c) 2023, UCL, Prof. Andrew C.R. Martin\n");
+
+   printf("\nUsage: carcons [-n nSD] pos mutation [in.faa [out.txt]]\n");
+   printf("       -n       Specify the number of standard deviations \
+to calculate\n");
+   printf("                a cutoff threshold [Default: %.1f]\n",
+          DEF_NUMSD);
+   printf("       pos      The position in the alignment (counting \
+from 1)\n");
+   printf("       mutation The replacement amino acid (1-letter code)\n");
+   printf("       in.faa   An MSA in FASTA format. The first sequence \
+must be\n");
+   printf("                the one of interest in which we have a \
+mutation, the\n");
+   printf("                others are observed functionally equivalent \
+orthologues\n");
+   printf("       out.txt  Output text file\n");
+
+   printf("\nCalculates a mutation impact score based on Conservation \
+and Allowed\n");
+   printf("Residues (CAR).\n");
+
+   printf("\nIf input and output files are not specified, standard \
+input and standard\n");
+   printf("output will be used.\n\n");
 }
-
-
-
-REAL MDMScore(char aa1, char aa2)
-{
-   return(0);
-}
-   
