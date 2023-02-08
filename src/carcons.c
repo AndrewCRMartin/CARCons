@@ -61,6 +61,7 @@
 #include "bioplib/SysDefs.h"
 #include "bioplib/macros.h"
 #include "bioplib/general.h"
+#include "bioplib/sequtil.h"
 
 /************************************************************************/
 /* Defines and macros
@@ -105,6 +106,13 @@ REAL ScoreSelfIDMutant(char *seq, int nMutant);
 BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile, 
                   int *position, char *mutation, REAL *numSD);
 void Usage(void);
+SEQLIST *ReadFASTAAlignment(FILE *in, int *nSeqs);
+REAL EvaluateMutation(SEQLIST *seqlist, int NSeqs,
+                      int position, char mutation, REAL numSD);
+REAL CalculateDelta(SEQLIST *seqlist, int position, char mutant,
+                    REAL threshold);
+
+
 
 
 
@@ -117,14 +125,28 @@ int main(int argc, char **argv)
            outFile[MAXBUFF],
            mutation;
    REAL    numSD    = 2.0;
-   int     position = 0;
+   int     position = 0,
+           nSeqs    = 0;
+   SEQLIST *seqlist = NULL;
    
    if(ParseCmdLine(argc, argv, inFile, outFile, &position, &mutation,
                    &numSD))
    {
       if(blOpenStdFiles(inFile, outFile, &in, &out))
       {
-         
+         if((seqlist = ReadFASTAAlignment(in, &nSeqs))!=NULL)
+         {
+            REAL score = EvaluateMutation(seqlist, nSeqs,
+                                          position, mutation, numSD);
+
+            fprintf(out, "%.3f\n", score);
+         }
+         else
+         {
+            fprintf(stderr,"carcons: Error - unable to read FASTA \
+alignment file\n");
+            return(1);
+         }
       }
       else
       {
@@ -143,6 +165,63 @@ output file\n");
    
 }
 
+REAL EvaluateMutation(SEQLIST *seqlist, int nSeqs,
+                      int position, char mutation, REAL numSD)
+{
+   REAL meanWeightedDiversity,
+        sd,
+        threshold,
+        score;
+
+   meanWeightedDiversity = MeanWeightedDiversity(seqlist,nSeqs,position);
+   sd                    = SDWeightedDiversity(seqlist,nSeqs,position,
+                                               meanWeightedDiversity);
+   threshold             = CalculateThreshold(meanWeightedDiversity,
+                                              sd, numSD);
+   score                 = CalculateDelta(seqlist, position, mutation,
+                                          threshold);
+
+   return(score);
+}
+
+
+/************************************************************************/
+SEQLIST *ReadFASTAAlignment(FILE *in, int *nSeqs)
+{
+   SEQLIST *seqlist = NULL,
+           *s;
+   char    *sequence,
+           header[MAXBUFF];
+
+   *nSeqs = 0;
+   
+   while((sequence = blReadFASTA(in, header, MAXBUFF))!=NULL)
+   {
+      if(seqlist == NULL)
+      {
+         INIT(seqlist, SEQLIST);
+         s = seqlist;
+      }
+      else
+      {
+         ALLOCNEXT(s, SEQLIST);
+      }
+
+      if(s==NULL)
+      {
+         FREELIST(seqlist, SEQLIST);
+         return(NULL);
+      }
+
+      s->sequence = sequence;
+      s->seqLen   = strlen(sequence);
+      (*nSeqs)++;
+   }
+   
+   return(seqlist);
+}
+
+
 /************************************************************************/
 BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile, 
                   int *position, char *mutation, REAL *numSD)
@@ -151,6 +230,8 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
    argv++;
 
    infile[0] = outfile[0] = '\0';
+   if(argc < 2)
+      return(FALSE);
    
    while(argc)
    {
@@ -228,7 +309,7 @@ REAL MeanWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position)
    {
       s = seqlist;
       
-      for(k=0; k<=j; k++)
+      for(k=0; k<j; k++)
       {
          NEXT(s);
       }
@@ -247,8 +328,8 @@ REAL MeanWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position)
 
 /************************************************************************/
 INLINE REAL CalculateThreshold(REAL meanWeightedDiversity,
-                                      REAL sdWeightedDiversity,
-                                      REAL numSD)
+                               REAL sdWeightedDiversity,
+                               REAL numSD)
 {
    return(meanWeightedDiversity + (numSD * sdWeightedDiversity));
 }
@@ -290,7 +371,7 @@ REAL SDWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position,
       SEQLIST *s;
       
       s = seqlist;
-      for(k=0; k<=j; k++)
+      for(k=0; k<j; k++)
       {
          NEXT(s);
       }
@@ -379,6 +460,7 @@ REAL ScoreSelfIDMutant(char *seq, int nMutant)
 
 void Usage(void)
 {
+   printf("Usage\n");
 }
 
 
