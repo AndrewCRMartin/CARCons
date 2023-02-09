@@ -155,7 +155,7 @@ int main(int argc, char **argv)
                {
                   printf("%s\n", s->sequence);
                }
-               printf("\n");
+               printf("\nPosition: %d\n", position+1);
 #endif
                
                score = EvaluateMutation(seqlist, nSeqs,
@@ -215,7 +215,7 @@ REAL EvaluateMutation(SEQLIST *seqlist, int nSeqs,
    threshold             = CalculateThreshold(meanWeightedDiversity,
                                               sd, numSD);
 #ifdef DEBUG
-   printf("*** Key Values:\n");
+   printf("\n*** Key Values:\n");
    printf("Number of SDs (NumSD)         : %.3f\n", numSD);
    printf("Mean Weighted Diversity (MWD) : %.3f\n",
           meanWeightedDiversity);
@@ -224,6 +224,7 @@ REAL EvaluateMutation(SEQLIST *seqlist, int nSeqs,
 #endif
    score                 = CalculateDelta(seqlist, position, mutation,
                                           threshold, maxInMatrix);
+   score = threshold - score;
    return(score);
 }
 
@@ -399,6 +400,8 @@ REAL CalculateDelta(SEQLIST *seqlist, int position, char mutant,
    printf("Mutant                        : %c\n",   mutant);
    printf("Raw Similarity (Native:Mutant): %.3f\n", rawSimilarity);
    printf("Max in corrected matrix       : %.3f\n", maxInMatrix);
+   printf("Scaled Similarity             : %.3f\n",
+          rawSimilarity/maxInMatrix);
    printf("Diversity (Native:Mutant)     : %.3f\n", v_1M);
    printf("Self ID with mutation         : %.3f\n\n", P_1M);
 #endif   
@@ -435,11 +438,19 @@ REAL SDWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position,
       P_1j = ScorePairwiseAlignmentIdentity(seq1, seqJ);
       v_1j = ScoreDiversity(seq1, seqJ, position, maxInMatrix);
 
+#ifdef DEBUG
+      printf("   Diversity: %.3f Whole Seq: %.3f Weighted Diversity: %.3f\n",
+             v_1j, P_1j, v_1j*P_1j);
+#endif
+      
       dev = ((v_1j * P_1j) - meanWeightedDiversity);
       sumDevSq += (dev*dev);
    }
 
-   sd = sqrt(sumDevSq/(nSeqs-1));
+   /* Divide by nSeqs-2 because we have -1 for the number of comparisons
+      made and another -1 for the sample deviation
+   */ 
+   sd = sqrt(sumDevSq/(nSeqs-2));
 
    return(sd);
 }
