@@ -28,7 +28,7 @@ obtains a score of 1.0.
 
 Now suppose we have a native sequence having a serine at this position,
 if a mutation is made to a very different amino acid then this is very
-likely to be problematic. However, if the mutation is to a serine, on
+likely to be problematic. However, if the mutation is to a threonine, on
 the basis of conservation, this will still be scored as problematic
 although we know that this is a very similar amino acid and is allowed
 in other sequences.
@@ -217,5 +217,112 @@ identity (or similarity) between the reference sequence and the
 mutated sequence (which clearly will be very high, normally only one
 mutation being present). A negative value would indicate an
 unfavourable mutation.
+
+
+\section{Proposal~6 --- weighted minimum conservation by SD (Version 2)}
+Proposal~5 does not account for having a sequence that ends up being
+identical to the mutant version of the first sequence.
+
+We have three things to consider when looking at the sequences in the MSA:
+\begin{enumerate}
+  \item \label{item:highseqid} If the sequence identity between
+    between the mutated sequence and a sequence in the MSA is high,
+    then any mutation observed in the MSA (irrespective of what it is)
+    must be allowed.  i.e.\ the impact of the mutation must be low.
+  \item \label{item:lowseqid} Conversely, if the sequence identity between the
+    mutated sequence and sequence in the MSA is low, then the
+    appearance of the mutated residue in that sequence is less
+    informative as it is more likely that a CPD could be responsible.
+  \item If we have overall high diversity at a given position (i.e. a
+    low conservation score), then the mutation is less likely to have
+    an impact.
+\end{enumerate}
+
+We can address Point~\ref{item:highseqid}  by
+taking the diversity score for mutated residue $M$ and dividing it by
+the overall sequence identity between the mutant sequence and sequence
+$j$ ($P_{M, j}$):
+
+\begin{equation}
+  S_{M,j} = v_{M, j} / P_{M, j}
+\end{equation}
+such that any variability at a given position is scaled down if the
+overall sequences are very similar and scaled up if the sequences are
+very different.
+
+Suppose we have a sequence which is identical to the
+mutant sequence, then $v_{M, j} = 0.0$ and $P_{M, j} = 1.0$, so
+$S_{M,j} = 0.0$
+
+However, this does not address Point~\ref{item:lowseqid}.
+Suppose we have a sequence in the MSA which is very different to the mutant
+sequence (say 10\% sequence identity), but contains the mutated
+residue, then $v_{M, j} = 0.0$ and $P_{M, j} = 0.1$, so $S_{M,j} =
+0.0$
+
+This is clearly \emph{not} what we want, as it isn't addressing the CPD
+issue. A further problem with this approach is that we can end up with
+values of $S_{M,j} > 1.0$
+
+As an alternative we could scale the \emph{conservation} score before
+calculating the diversity. In this case we calculate the corrected
+conservation score and variability score as:
+
+\begin{equation}
+  \begin{array}{ll}
+    s^c_{M,j} & = s_{M,j} \times P_{M, j} \\
+    v^c_{M,j} & = 1 - s^c_{M_j} \\
+  \end{array}
+\end{equation}
+and $S_{M,j}$ then simply becomes:
+\begin{equation}
+  S_{M,j} = v^c_{M, j}
+\end{equation}
+
+Looking at the same scenarios:
+
+\begin{itemize}  
+\item With a sequence which is identical to the mutant sequence, then
+  $s_{M, j} = 1.0$ and $P_{M, j} = 1.0$, so $s^c_{M,j} = 1.0$ and
+  $S_{M,j} = v^c_{M,j} = 0.0$ which, as before, is what we want.
+
+\item With a 10\% identity sequence in the MSA, but containing the
+  mutated residue, we have $s_{M, j} = 1.0$ and $P_{M, j} = 0.1$, so
+  $s^c_{M,j} = 0.1$ and $S_{M,j} = v^c_{M,j} = 0.9$. This is
+  better, we are penalizing this residue as it is in a very diverse
+  sequence.
+
+\item In addition, with a 50\% identity sequence in the MSA, but
+  containing the mutated residue, we have $s_{M, j} = 1.0$ and $P_{M,
+    j} = 0.5$, so $s^c_{M,j} = 0.5$ and $S_{M,j} = v^c_{M,j} =
+  0.5$.
+\end{itemize}  
+
+This may be too severe a penalty, so it may be better to use
+\begin{equation}
+  \begin{array}{ll}
+    s^c_{M,j} & = s_{M,j} \times \sqrt{P_{M, j}} \\
+    v^c_{M,j} & = 1 - s^c_{M_j} \\
+  \end{array}
+\end{equation}
+which would result in values of
+$1-(1.00 \times \sqrt{1.0}) = 0.0$,
+$1-(1.00 \times \sqrt{0.1}) = 0.684$,
+$1-(1.00 \times \sqrt{0.5}) = 0.293$
+respectively. The power of the root could be a tunable parameter.
+
+
+In summary these approaches have the following characteristics:
+
+\begin{center}
+  \begin{tabular}{llllllll}
+                        & Residue     & \multicolumn{3}{c}{Same} (v=0.0) & \multicolumn{3}{c}{Different} (v=1) \\
+                        & Sequence ID & 1.0    & 0.5    & 0.1            & 1.0    & 0.5    & 0.1          \\
+    Approach            &             &        &        &                &        &        &              \\ \hline
+    Division            &             & 0.0    &        & 0.0            &        &        &              \\
+    Similarity          &             & 0.0    & 0.5    & 0.9            &        &        &              \\
+    $\sqrt{}$Similarity &             & 0.0    & 0.684  & 0.293          &        &        &              \\ \hline
+  \end{tabular}
+\end{center}
 
 \end{document}

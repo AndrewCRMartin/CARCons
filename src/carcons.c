@@ -112,11 +112,30 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
                   int *position, char *mutation, REAL *numSD);
 void Usage(void);
 SEQLIST *ReadFASTAAlignment(FILE *in, int *nSeqs);
-REAL EvaluateMutation(SEQLIST *seqlist, int NSeqs,
-                      int position, char mutation,
-                      REAL numSD, REAL maxInMatrix);
+REAL EvaluateMutation5(SEQLIST *seqlist, int NSeqs,
+                       int position, char mutation,
+                       REAL numSD, REAL maxInMatrix);
+REAL EvaluateMutation6(SEQLIST *seqlist, int NSeqs,
+                       int position, char mutation,
+                       char *mutantSeq,
+                       REAL numSD, REAL maxInMatrix);
 REAL CalculateDelta(SEQLIST *seqlist, int position, char mutant,
                     REAL threshold, REAL maxInMatrix);
+INLINE REAL ScoreMutantDiversity(char mutation, char *seqJ, int position,
+                                 REAL maxInMatrix, REAL P_ij);
+INLINE REAL ScoreMutantSimilarity(char mutation, char *seqJ, int position,
+                                  REAL maxInMatrix);
+REAL MeanWeightedMutantDiversity(SEQLIST *seqlist, int nSeqs,
+                                 char mutation, int position,
+                                 char *mutantSeq,
+                                 REAL maxInMatrix);
+REAL SDWeightedMutantDiversity(SEQLIST *seqlist, int nSeqs, char mutation,
+                               int position, char *mutantSeq,
+                               REAL meanWeightedDiversity,
+                               REAL maxInMatrix);
+char *BuildMutantSeq(SEQLIST *seqlist, int position, char mutation);
+
+
 
 
 /************************************************************************/
@@ -127,6 +146,7 @@ int main(int argc, char **argv)
    char    inFile[MAXBUFF],
            outFile[MAXBUFF],
            MDMFile[MAXBUFF],
+           *mutantSeq = NULL,
            mutation;
    REAL    numSD    = DEF_NUMSD;
    int     position = 0,
@@ -158,11 +178,22 @@ int main(int argc, char **argv)
                printf("\nPosition: %d\n", position+1);
 #endif
                
-               score = EvaluateMutation(seqlist, nSeqs,
-                                        position, mutation,
-                                        numSD, maxInMatrix);
+               if((mutantSeq = BuildMutantSeq(seqlist, position, mutation))
+                  != NULL)
+               {
+                  score = EvaluateMutation6(seqlist, nSeqs,
+                                            position, mutation,
+                                            mutantSeq,
+                                            numSD, maxInMatrix);
                
-               fprintf(out, "%.3f\n", score);
+                  fprintf(out, "%.3f\n", score);
+               }
+               else
+               {
+                  fprintf(stderr,"carcons: Error - unable to create \
+mutant sequence\n");
+                  return(1);
+               }
             }
             else
             {
@@ -198,9 +229,27 @@ output file\n");
 
 
 /************************************************************************/
-REAL EvaluateMutation(SEQLIST *seqlist, int nSeqs,
-                      int position, char mutation,
-                      REAL numSD, REAL maxInMatrix)
+char *BuildMutantSeq(SEQLIST *seqlist, int position, char mutation)
+{
+   int seqLen;
+   char *mutantSeq = NULL;
+
+   seqLen = strlen(seqlist->sequence);
+   if((seqLen < 1) ||
+      (mutantSeq = (char *)malloc((seqLen+1)*sizeof(char)))==NULL)
+   {
+      return(NULL);
+   }
+   strcpy(mutantSeq, seqlist->sequence);
+   mutantSeq[position] = mutation;
+
+   return(mutantSeq);
+}
+
+/************************************************************************/
+REAL EvaluateMutation5(SEQLIST *seqlist, int nSeqs,
+                       int position, char mutation,
+                       REAL numSD, REAL maxInMatrix)
 {
    REAL meanWeightedDiversity,
         sd,
@@ -212,6 +261,43 @@ REAL EvaluateMutation(SEQLIST *seqlist, int nSeqs,
    sd                    = SDWeightedDiversity(seqlist, nSeqs, position,
                                                meanWeightedDiversity,
                                                maxInMatrix);
+   threshold             = CalculateThreshold(meanWeightedDiversity,
+                                              sd, numSD);
+#ifdef DEBUG
+   printf("\n*** Key Values:\n");
+   printf("Number of SDs (NumSD)         : %.3f\n", numSD);
+   printf("Mean Weighted Diversity (MWD) : %.3f\n",
+          meanWeightedDiversity);
+   printf("Standard Deviation (SD)       : %.3f\n", sd);
+   printf("Threshold (MWD+NumSD*SD)      : %.3f\n", threshold);
+#endif
+   score                 = CalculateDelta(seqlist, position, mutation,
+                                          threshold, maxInMatrix);
+   score = threshold - score;
+   return(score);
+}
+
+
+/************************************************************************/
+REAL EvaluateMutation6(SEQLIST *seqlist, int nSeqs,
+                       int position, char mutation,
+                       char *mutantSeq,
+                       REAL numSD, REAL maxInMatrix)
+{
+   REAL meanWeightedDiversity,
+        sd,
+        threshold,
+        score;
+
+   meanWeightedDiversity = MeanWeightedMutantDiversity(seqlist, nSeqs,
+                                                       mutation, position,
+                                                       mutantSeq,
+                                                       maxInMatrix);
+   sd                    = SDWeightedMutantDiversity(seqlist, nSeqs,
+                                                     mutation, position,
+                                                     mutantSeq,
+                                                     meanWeightedDiversity,
+                                                     maxInMatrix);
    threshold             = CalculateThreshold(meanWeightedDiversity,
                                               sd, numSD);
 #ifdef DEBUG
@@ -363,7 +449,44 @@ REAL MeanWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position,
       P_1j = ScorePairwiseAlignmentIdentity(seq1, seqJ);
       v_1j = ScoreDiversity(seq1, seqJ, position, maxInMatrix);
       
-      Vr += (v_1j * P_1j);
+      Vr += (v_1j / P_1j);
+   }
+
+   Vr /= (nSeqs - 1);
+
+   return(Vr);
+}
+
+
+/************************************************************************/
+REAL MeanWeightedMutantDiversity(SEQLIST *seqlist, int nSeqs,
+                                 char mutation, int position,
+                                 char *mutantSeq,
+                                 REAL maxInMatrix)
+{
+   SEQLIST *s;
+   int     j, k;
+   REAL    Vr = (REAL)0.0,
+           P_1j,
+           v_1j;
+   char    *seqJ;
+   
+
+   for(j=0; j<nSeqs; j++)
+   {
+      s = seqlist;
+      
+      for(k=0; k<j; k++)
+      {
+         NEXT(s);
+      }
+      seqJ = s->sequence;
+      
+      P_1j = ScorePairwiseAlignmentIdentity(mutantSeq, seqJ);
+      v_1j = ScoreMutantDiversity(mutation, seqJ, position, maxInMatrix,
+         P_1j);
+      
+      Vr += (v_1j / P_1j);
    }
 
    Vr /= (nSeqs - 1);
@@ -440,10 +563,10 @@ REAL SDWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position,
 
 #ifdef DEBUG
       printf("   Diversity: %.3f Whole Seq: %.3f Weighted Diversity: %.3f\n",
-             v_1j, P_1j, v_1j*P_1j);
+             v_1j, P_1j, v_1j / P_1j);
 #endif
       
-      dev = ((v_1j * P_1j) - meanWeightedDiversity);
+      dev = ((v_1j / P_1j) - meanWeightedDiversity);
       sumDevSq += (dev*dev);
    }
 
@@ -457,6 +580,61 @@ REAL SDWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position,
 
 
 /************************************************************************/
+REAL SDWeightedMutantDiversity(SEQLIST *seqlist, int nSeqs, char mutation,
+                               int position,
+                               char *mutantSeq,
+                               REAL meanWeightedDiversity,
+                               REAL maxInMatrix)
+{
+   char *seqJ;
+   int  j, k;
+   
+   REAL sumDevSq = 0.0,
+        dev, sd,
+        P_1j,
+        v_1j;
+   
+   for(j=0; j<nSeqs; j++)
+   {
+      SEQLIST *s;
+      
+      s = seqlist;
+      for(k=0; k<j; k++)
+      {
+         NEXT(s);
+      }
+      seqJ = s->sequence;
+      
+      P_1j = ScorePairwiseAlignmentIdentity(mutantSeq, seqJ);
+      v_1j = ScoreMutantDiversity(mutation, seqJ, position, maxInMatrix,
+         P_1j);
+
+#ifdef DEBUG
+      printf("   Diversity: %.3f Whole Seq: %.3f Weighted Diversity: %.3f\n",
+             v_1j, P_1j, v_1j / P_1j);
+#endif
+      
+      dev = ((v_1j / P_1j) - meanWeightedDiversity);
+      sumDevSq += (dev*dev);
+   }
+
+   /* Divide by nSeqs-2 because we have -1 for the number of comparisons
+      made and another -1 for the sample deviation
+   */ 
+   sd = sqrt(sumDevSq/(nSeqs-2));
+
+   return(sd);
+}
+
+
+/************************************************************************/
+INLINE REAL ScoreSimilarity(char *seq1, char *seqJ, int position,
+                            REAL maxInMatrix)
+{
+   return(blCalcMDMScoreUC(seq1[position], seqJ[position])/maxInMatrix);
+}
+
+/************************************************************************/
 INLINE REAL ScoreDiversity(char *seq1, char *seqJ, int position,
                            REAL maxInMatrix)
 {
@@ -468,10 +646,30 @@ INLINE REAL ScoreDiversity(char *seq1, char *seqJ, int position,
 
 
 /************************************************************************/
-INLINE REAL ScoreSimilarity(char *seq1, char *seqJ, int position,
-                            REAL maxInMatrix)
+INLINE REAL ScoreMutantSimilarity(char mutation, char *seqJ, int position,
+                                  REAL maxInMatrix)
 {
-   return(blCalcMDMScoreUC(seq1[position], seqJ[position])/maxInMatrix);
+   REAL score = blCalcMDMScoreUC(mutation, seqJ[position]);
+
+#ifdef DEBUG
+   printf("   %c vs %c MDMScore = %.3f, Corrected = %.3f\n",
+          mutation, seqJ[position],
+          score, score/maxInMatrix);
+   
+#endif
+   
+   return(score/maxInMatrix);
+}
+
+
+/************************************************************************/
+INLINE REAL ScoreMutantDiversity(char mutation, char *seqJ, int position,
+                                 REAL maxInMatrix, REAL P_ij)
+{
+   REAL similarity;
+   
+   similarity = ScoreMutantSimilarity(mutation, seqJ, position, maxInMatrix);
+   return(1-(similarity*P_ij));
 }
 
 
