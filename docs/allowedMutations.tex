@@ -219,7 +219,7 @@ mutation being present). A negative value would indicate an
 unfavourable mutation.
 
 
-\section{Proposal~6 --- weighted minimum conservation by SD (Version 2)}
+\section{Proposal~6 --- weighted minimum conservation (Version 2)}
 Proposal~5 does not account for having a sequence that ends up being
 identical to the mutant version of the first sequence.
 
@@ -241,7 +241,7 @@ We have three things to consider when looking at the sequences in the MSA:
 We can address Point~\ref{item:highseqid}  by
 taking the diversity score for mutated residue $M$ and dividing it by
 the overall sequence identity between the mutant sequence and sequence
-$j$ ($P_{M, j}$):
+$j$, ($P_{M, j}$):
 
 \begin{equation}
   S_{M,j} = v_{M, j} / P_{M, j}
@@ -262,7 +262,8 @@ residue, then $v_{M, j} = 0.0$ and $P_{M, j} = 0.1$, so $S_{M,j} =
 
 This is clearly \emph{not} what we want, as it isn't addressing the CPD
 issue. A further problem with this approach is that we can end up with
-values of $S_{M,j} > 1.0$
+values of $S_{M,j} > 1.0$ (when both overall sequence identity and
+residue similarity are low)
 
 As an alternative we could scale the \emph{conservation} score before
 calculating the diversity. In this case we calculate the corrected
@@ -315,14 +316,23 @@ respectively. The power of the root could be a tunable parameter.
 In summary these approaches have the following characteristics:
 
 \begin{center}
-  \begin{tabular}{llllllll}
-                        & Residue     & \multicolumn{3}{c}{Same} (v=0.0) & \multicolumn{3}{c}{Different} (v=1) \\
-                        & Sequence ID & 1.0    & 0.5    & 0.1            & 1.0    & 0.5    & 0.1          \\
-    Approach            &             &        &        &                &        &        &              \\ \hline
-    Division            &             & 0.0    &        & 0.0            &        &        &              \\
-    Similarity          &             & 0.0    & 0.5    & 0.9            &        &        &              \\
-    $\sqrt{}$Similarity &             & 0.0    & 0.684  & 0.293          &        &        &              \\ \hline
+  \begin{tabular}{llllllllll} \hline
+                         & \multicolumn{9}{c}{Residue similarity}                                                                    \\
+                         & \multicolumn{3}{c|}{Same (s=1)} & \multicolumn{3}{c|}{Different (s=0)} & \multicolumn{3}{c}{Medium (s=0.5)} \\ \cline{2-10}    
+    Sequence ID          & 1.0    & 0.5    & 0.1           & 1.0    & 0.5    & 0.1                & 1.0    & 0.5    & 0.1              \\ \hline        
+    Approach             &        &        &               &        &        &                    &        &        &                  \\
+    Division             & 0.0    & 0.0    & 0.0           & 1.0    & 2.0    & 10.0               & 0.5    & 1.0    & 5.0              \\       
+    Similarity           & 0.0    & 0.5    & 0.9           & 1.0    & 1.0    & 1.0                & 0.5    & 0.75   & 0.95             \\       
+    $\sqrt{}$Similarity  & 0.0    & 0.293  & 0.683         & 1.0    & 1.0    & 1.0                & 0.5    & 0.646  & 0.842            \\ \hline
   \end{tabular}
 \end{center}
+
+\noindent i.e.\ If the residues are the same then this becomes less
+informative as being acceptable as the overall sequence identity
+drops. If the residues are very different, then it is never accepted
+(at high sequence ID, we haven't seen this residue and at low sequence
+ID we have no information owing to CPDs). At medium residue similarity,
+the score is gradually penalized as the overall sequence ID drops.
+
 
 \end{document}
