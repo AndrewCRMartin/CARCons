@@ -423,6 +423,9 @@ BOOL ParseCmdLine(int argc, char **argv, char *infile, char *outfile,
 
 
 /************************************************************************/
+/* This gives $V_r$ in Equation 11 {eqn:vr}
+*/
+
 REAL MeanWeightedDiversity(SEQLIST *seqlist, int nSeqs, int position,
                            REAL maxInMatrix)
 {
@@ -628,6 +631,8 @@ REAL SDWeightedMutantDiversity(SEQLIST *seqlist, int nSeqs, char mutation,
 
 
 /************************************************************************/
+/* This gives $s_{i,j}$ in Equation 1 \ref{eqn:sc}
+*/
 INLINE REAL ScoreSimilarity(char *seq1, char *seqJ, int position,
                             REAL maxInMatrix)
 {
@@ -635,6 +640,8 @@ INLINE REAL ScoreSimilarity(char *seq1, char *seqJ, int position,
 }
 
 /************************************************************************/
+/* This gives $v_{i,j}$ in Equation 8 \ref{eqn:v}
+*/
 INLINE REAL ScoreDiversity(char *seq1, char *seqJ, int position,
                            REAL maxInMatrix)
 {

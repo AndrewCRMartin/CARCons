@@ -61,8 +61,8 @@ The first proposal is that, instead of calculating an overall
 conservation score for a position in an alignment, we should only
 look at conservation in a pairwise manner from a reference sequence of
 interest. In `scorecons' we calculate a score for a particular column as:
-\begin{equation}
-  S_c = \sum_{i, j>i}^Ns_{i, j} / N_c
+\begin{equation}\label{eqn:sc}
+  S_c = \sum_{i}^N\sum_{j>i}^Ns_{i, j} / N_c
 \end{equation}
 where $S_c$ is the score for this column, $s_{i,j}$ is a score for
 residues at positions $i$ and $j$ in the column, maximal and
@@ -145,6 +145,9 @@ allowed as a mutation with no effect on the function of the protein
 hand, if two sequences are quite diverse, there may be compensatory
 effects going on.
 
+Expressing it another way, if the sequences are very similar overall,
+then it doesn't matter if the residues are very different.
+
 In this case, it is simpler to work in terms of diversity rather than
 conservation of residues. Assuming (as above) that residue similarity
 from a scoring matrix is scored in the range of 0\ldots 1 (where 1
@@ -155,9 +158,16 @@ represents an identical residue), we can simply define the diversity
   v_{i,j} = 1 - s_{i,j}
 \end{equation}
 
+
 We can now revisit Proposal~2, weighting by the sequence identity (or
 similarity --- both expressed as a fractional value, $P$) between the
 two sequences:
+
+%
+%        v-low  v-high
+%P-low   1      0.5
+%P-high  1      1
+%
 
 \begin{equation} \label{eqn:smw}
   V_{mw} = \max_{j>1}^N(v_{1, j} \times P_{1,j})
@@ -166,8 +176,17 @@ where $v_{1,j}$ is the diversity between the residue in the reference
 sequence residue and in sequence $j$ as defined in
 Equation~\ref{eqn:v} and $P_{1,j}$ is the overall fractional sequence
 identity (or similarity) between sequences the reference sequence and
-sequence $j$.  As before, this could then be used as a threshold for
-suggesting whether a particular mutation is likely to be damaging:
+sequence $j$.  Here, as the sequences become more similar ($P_{i,j}$
+increases), the effect of the residue diversity ($v_{1,j}$) on
+$V_{mw}$ becomes greater.
+
+
+
+
+As before, this could then be used as a threshold for suggesting
+whether a particular mutation is likely to be damaging. Since $V_{mw}$
+becomes larger as the overall sequence identity increases, the
+threshold increases and residue variability has less effect):
 
 \begin{equation}
   \Delta_{mw} = V_{mw} - (v_{1, M} \times P_{1, M}) 
@@ -180,13 +199,14 @@ mutated sequence (which clearly will be very high, normally only one
 mutation being present). A negative value would indicate an
 unfavourable mutation.
 
+
 \section{Proposal~5 --- weighted minimum conservation by SD}
 Proposal~5 is simply the ideas of Proposal~4 applied to Proposal~3
 instead of Proposal~2, i.e.\ selecting a diversity score that is $d$ standard
 deviations above the mean rather than simply selecting the
 maximum.
 
-The mean weighted diversity score is calculated with resepct to the
+The mean weighted diversity score is calculated with respect to the
 reference sequence (analagous to Equation~\ref{eqn:sr}):
 
 \begin{equation}\label{eqn:vr}
@@ -334,5 +354,12 @@ drops. If the residues are very different, then it is never accepted
 ID we have no information owing to CPDs). At medium residue similarity,
 the score is gradually penalized as the overall sequence ID drops.
 
-
+\appendix
+\section{Implementation}
+\begin{tabular}{lll}\hline
+  Equation        & Variable    & Function                  \\
+  \ref{eqn:sc}    & $s_{i,j}$    & ScoreSimilarity()         \\
+  \ref{eqn:v}     & $v_{i,j}$    & ScoreDiversity()          \\
+  \ref{eqn:vr}    & $V_r$       & MeanWeightedDiversity()   \\ 
+\end{tabular}
 \end{document}
